@@ -42,7 +42,9 @@ public class LookupConfiguration extends Configuration {
         this.httpClient = httpClient;
     }
 
-    private List<String> ignoreCrossRefFields;
+    private List<String> ignoreCrossRefJsonFields;
+
+    private List<String> ignoreCrossRefXmlTags;
 
     private int maxAcceptedRequests;
 
@@ -78,12 +80,20 @@ public class LookupConfiguration extends Configuration {
         this.batchSize = batchSize;
     }
 
-    public List<String> getIgnoreCrossRefFields() {
-        return this.ignoreCrossRefFields;
+    public List<String> getIgnoreCrossRefJsonFields() {
+        return this.ignoreCrossRefJsonFields;
     }
 
-    public void setIgnoreCrossRefFields(List<String> ignoreCrossRefFields) {
-        this.ignoreCrossRefFields = ignoreCrossRefFields;
+    public void setIgnoreCrossRefJsonFields(List<String> ignoreCrossRefJsonFields) {
+        this.ignoreCrossRefJsonFields = ignoreCrossRefJsonFields;
+    }
+
+    public List<String> getIgnoreCrossRefXmlTags() {
+        return this.ignoreCrossRefXmlTags;
+    }
+
+    public void setIgnoreCrossRefXmlTags(List<String> ignoreCrossRefXmlTags) {
+        this.ignoreCrossRefXmlTags = ignoreCrossRefXmlTags;
     }
 
     public int getMaxAcceptedRequests() {

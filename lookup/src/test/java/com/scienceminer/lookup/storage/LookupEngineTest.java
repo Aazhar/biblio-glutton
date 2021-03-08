@@ -12,6 +12,7 @@ import org.junit.Test;
 import com.scienceminer.lookup.storage.lookup.IstexIdsLookup;
 import com.scienceminer.lookup.storage.lookup.PMIdsLookup;
 
+import javax.ws.rs.core.MediaType;
 import java.util.Collections;
 
 import static org.easymock.EasyMock.*;
@@ -73,7 +74,7 @@ public class LookupEngineTest {
         expect(mockOALookup.retrieveOaLinkByDoi(doi)).andReturn(fakeOAurl);
 
         replay(mockIstexLookup, mockPmidLookup, mockOALookup);
-        String output = target.injectIdsByDoi(input, doi);
+        String output = target.injectIdsByDoi(input, doi, MediaType.APPLICATION_JSON);
         verify(mockPmidLookup, mockIstexLookup, mockOALookup);
 
         JsonElement jelement = new JsonParser().parse(output);
@@ -97,7 +98,7 @@ public class LookupEngineTest {
         expect(mockOALookup.retrieveOaLinkByDoi(doi)).andReturn(null);
 
         replay(mockIstexLookup, mockOALookup);
-        String output = target.injectIdsByDoi(input, doi);
+        String output = target.injectIdsByDoi(input, doi, MediaType.APPLICATION_JSON);
         verify(mockIstexLookup, mockOALookup);
 
         JsonElement jelement = new JsonParser().parse(output);
@@ -119,7 +120,7 @@ public class LookupEngineTest {
 
 
         replay(mockPmidLookup, mockOALookup);
-        String output = target.injectIdsByDoi(input, doi);
+        String output = target.injectIdsByDoi(input, doi, MediaType.APPLICATION_JSON);
         verify(mockPmidLookup, mockOALookup);
 
         JsonElement jelement = new JsonParser().parse(output);
@@ -140,7 +141,7 @@ public class LookupEngineTest {
 
 
         replay(mockPmidLookup, mockOALookup);
-        String output = target.injectIdsByDoi(input, doi);
+        String output = target.injectIdsByDoi(input, doi, MediaType.APPLICATION_JSON);
         verify(mockPmidLookup, mockOALookup);
 
         JsonElement jelement = new JsonParser().parse(output);
@@ -159,7 +160,7 @@ public class LookupEngineTest {
         expect(mockOALookup.retrieveOaLinkByDoi(doi)).andReturn(null);
 
         replay(mockPmidLookup, mockIstexLookup, mockOALookup);
-        String output = target.injectIdsByDoi(input, doi);
+        String output = target.injectIdsByDoi(input, doi, MediaType.APPLICATION_JSON);
         verify(mockPmidLookup, mockIstexLookup, mockOALookup);
 
         assertThat(output, is(input));

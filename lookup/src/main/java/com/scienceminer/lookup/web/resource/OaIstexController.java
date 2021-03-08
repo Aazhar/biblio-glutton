@@ -11,6 +11,8 @@ import com.scienceminer.lookup.storage.StorageEnvFactory;
 
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.TransformerConfigurationException;
 
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
@@ -24,7 +26,7 @@ public class OaIstexController {
     private final StorageEnvFactory storageEnvFactory;
 
     @Inject
-    public OaIstexController(LookupConfiguration configuration, StorageEnvFactory storageEnvFactory) {
+    public OaIstexController(LookupConfiguration configuration, StorageEnvFactory storageEnvFactory) throws TransformerConfigurationException, ParserConfigurationException {
         this.configuration = configuration;
         this.storageEnvFactory = storageEnvFactory;
         this.storage = new LookupEngine(storageEnvFactory);

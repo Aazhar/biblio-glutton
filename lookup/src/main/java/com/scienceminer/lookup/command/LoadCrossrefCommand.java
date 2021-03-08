@@ -4,6 +4,7 @@ import com.codahale.metrics.ConsoleReporter;
 import com.codahale.metrics.MetricRegistry;
 import com.scienceminer.lookup.configuration.LookupConfiguration;
 import com.scienceminer.lookup.reader.CrossrefJsonReader;
+import com.scienceminer.lookup.reader.CrossrefXmlReader;
 import com.scienceminer.lookup.storage.StorageEnvFactory;
 import com.scienceminer.lookup.storage.lookup.MetadataLookup;
 import io.dropwizard.cli.ConfiguredCommand;
@@ -15,6 +16,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tukaani.xz.XZInputStream;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -30,6 +32,10 @@ public class LoadCrossrefCommand extends ConfiguredCommand<LookupConfiguration> 
     private static final Logger LOGGER = LoggerFactory.getLogger(LoadCrossrefCommand.class);
 
     public static final String CROSSREF_SOURCE = "crossref.dump";
+    public static final String FORMAT = "crossref.format";
+
+    public static final String XML = "xml";
+    public static final String JSON = "json";
 
     public LoadCrossrefCommand() {
         super("crossref", "Prepare the crossref database");
@@ -44,6 +50,12 @@ public class LoadCrossrefCommand extends ConfiguredCommand<LookupConfiguration> 
                 .type(String.class)
                 .required(true)
                 .help("The path to the source file of crossref dump.");
+
+        subparser.addArgument("--format")
+                .dest(FORMAT)
+                .type(String.class)
+                .required(false)
+                .help("The format of the crossref dump.");
     }
 
     @Override
@@ -62,6 +74,7 @@ public class LoadCrossrefCommand extends ConfiguredCommand<LookupConfiguration> 
         MetadataLookup metadataLookup = new MetadataLookup(storageEnvFactory);
         long start = System.nanoTime();
         final String crossrefFilePath = namespace.get(CROSSREF_SOURCE);
+        final String crossrefDumpFormat = namespace.get(FORMAT);
 
         LOGGER.info("Preparing the system. Loading data from Crossref dump from " + crossrefFilePath);
         File crossrefFile = new File(crossrefFilePath);
@@ -74,13 +87,32 @@ public class LoadCrossrefCommand extends ConfiguredCommand<LookupConfiguration> 
                 br = new BufferedReader(new InputStreamReader(tarInput)); // Read directly from tarInput
                 System.out.println("processing file " + currentEntry.getName());
                 StringBuffer content = new StringBuffer();
-                if (currentEntry.getName().endsWith(".json")) {
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        content.append(line);
-                    }
-                    metadataLookup.loadFromJson(content.toString(), new CrossrefJsonReader(configuration),
-                            metrics.meter("crossrefLookup"), false);
+                    switch(crossrefDumpFormat) {
+                        case JSON: {
+
+                            if (currentEntry.getName().endsWith(".json")) {
+                                String line;
+                                while ((line = br.readLine()) != null) {
+                                    content.append(line);
+                                }
+                                metadataLookup.loadFromJson(content.toString(), new CrossrefJsonReader(configuration),
+                                        metrics.meter("crossrefLookup"), false);
+                            }
+                            break;
+                        }
+                        case XML:{
+
+                            if (currentEntry.getName().endsWith(".xml")) {
+                                String line;
+                                //ignor if component C dir ? D dir or S dir ?
+                                while ((line = br.readLine()) != null) {
+                                    content.append(line.trim());
+                                }
+                                metadataLookup.loadFromXml(content.toString(), new CrossrefXmlReader(configuration),
+                                        metrics.meter("crossrefLookup"), false);
+                            }
+                            break;
+                        }
                 }
                 currentEntry = tarInput.getNextTarEntry(); // You forgot to iterate to the next file
             }

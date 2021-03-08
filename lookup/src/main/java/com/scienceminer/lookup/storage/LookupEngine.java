@@ -9,13 +9,31 @@ import com.scienceminer.lookup.data.IstexData;
 import com.scienceminer.lookup.data.MatchingDocument;
 import com.scienceminer.lookup.data.PmidData;
 import com.scienceminer.lookup.exception.NotFoundException;
+import com.scienceminer.lookup.exception.ServiceException;
 import com.scienceminer.lookup.storage.lookup.*;
 import com.scienceminer.lookup.utils.grobid.GrobidClient;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 import scala.Option;
 
+import javax.ws.rs.core.MediaType;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.TransformerConfigurationException;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpressionException;
+import javax.xml.xpath.XPathFactory;
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,31 +52,38 @@ public class LookupEngine {
     public static Pattern DOIPattern = Pattern.compile("\"DOI\"\\s?:\\s?\"(10\\.\\d{4,5}\\/[^\"\\s]+[^;,.\\s])\"");
     private GrobidClient grobidClient = null;
 
+    private DocumentBuilder builder;
+    private XPath xPath;
+
     private static String ISTEX_BASE = "https://api.istex.fr/document/";
 
     public LookupEngine() {
     }
 
-    public LookupEngine(StorageEnvFactory storageFactory) {
+    public LookupEngine(StorageEnvFactory storageFactory) throws TransformerConfigurationException, ParserConfigurationException {
         this.oaDoiLookup = new OALookup(storageFactory);
         this.istexLookup = new IstexIdsLookup(storageFactory);
         this.metadataLookup = new MetadataLookup(storageFactory);
         this.metadataMatching = new MetadataMatching(storageFactory.getConfiguration(), metadataLookup);
         this.pmidLookup = new PMIdsLookup(storageFactory);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        this.builder = factory.newDocumentBuilder();
+        XPathFactory xPathFactory = XPathFactory.newInstance();
+        this.xPath = xPathFactory.newXPath();
     }
 
 
-    public String retrieveByArticleMetadata(String title, String firstAuthor, Boolean postValidate) {
+    public String retrieveByArticleMetadata(String title, String firstAuthor, Boolean postValidate, String mediaType) {
         MatchingDocument outputData = metadataMatching.retrieveByMetadata(title, firstAuthor);
         if (postValidate != null && postValidate) {
             if (!areMetadataMatching(title, firstAuthor, outputData)) {
                 throw new NotFoundException("Best bibliographical record did not passed the post-validation");
             }
         }
-        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI());
+        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI(), mediaType);
     }
 
-    public void retrieveByArticleMetadataAsync(String title, String firstAuthor, Boolean postValidate, Consumer<MatchingDocument> callback) {
+    public void retrieveByArticleMetadataAsync(String title, String firstAuthor, Boolean postValidate, Consumer<MatchingDocument> callback, String mediaType) {
         metadataMatching.retrieveByMetadataAsync(title, firstAuthor, matchingDocument -> {
             if (!matchingDocument.isException()) {
                 if (postValidate != null && postValidate) {
@@ -68,7 +93,7 @@ public class LookupEngine {
                     }
                 }
 
-                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                 matchingDocument.setFinalJsonObject(s);
             }
             callback.accept(matchingDocument);
@@ -76,12 +101,12 @@ public class LookupEngine {
     }
 
 
-    public String retrieveByJournalMetadata(String title, String volume, String firstPage) {
+    public String retrieveByJournalMetadata(String title, String volume, String firstPage, String mediaType) {
         MatchingDocument outputData = metadataMatching.retrieveByMetadata(title, volume, firstPage);
-        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI());
+        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI(), mediaType);
     }
 
-    public void retrieveByJournalMetadataAsync(String jtitle, String volume, String firstPage, String atitle, String firstAuthor, Boolean postValidate, Consumer<MatchingDocument> callback) {
+    public void retrieveByJournalMetadataAsync(String jtitle, String volume, String firstPage, String atitle, String firstAuthor, Boolean postValidate, Consumer<MatchingDocument> callback, String mediaType) {
         metadataMatching.retrieveByMetadataAsync(jtitle, volume, firstPage, matchingDocument -> {
             if (!matchingDocument.isException()) {
                 if (postValidate != null && postValidate) {
@@ -91,44 +116,56 @@ public class LookupEngine {
                     }
                 }
 
-                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                 matchingDocument.setFinalJsonObject(s);
             }
             callback.accept(matchingDocument);
         });
     }
 
-    public void retrieveByJournalMetadataAsync(String jtitle, String volume, String firstPage, Consumer<MatchingDocument> callback) {
+    public void retrieveByJournalMetadataAsync(String jtitle, String volume, String firstPage, Consumer<MatchingDocument> callback, String mediaType) {
         metadataMatching.retrieveByMetadataAsync(jtitle, volume, firstPage, matchingDocument -> {
             if (!matchingDocument.isException()) {
-                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                 matchingDocument.setFinalJsonObject(s);
             }
             callback.accept(matchingDocument);
         });
     }
 
-    public String retrieveByJournalMetadata(String title, String volume, String firstPage, String firstAuthor) {
+    public String retrieveByJournalMetadata(String title, String volume, String firstPage, String firstAuthor, String mediaType) {
         MatchingDocument outputData = metadataMatching.retrieveByMetadata(title, volume, firstPage, firstAuthor);
-        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI());
+        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI(), mediaType);
     }
 
     public void retrieveByJournalMetadataAsync(String title, String volume, String firstPage, String firstAuthor,
-                                               Consumer<MatchingDocument> callback) {
+                                               Consumer<MatchingDocument> callback, String mediaType) {
         metadataMatching.retrieveByMetadataAsync(title, volume, firstPage, firstAuthor, matchingDocument -> {
             if (!matchingDocument.isException()) {
-                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                 matchingDocument.setFinalJsonObject(s);
             }
             callback.accept(matchingDocument);
         });
     }
 
-    public String retrieveByDoi(String doi, Boolean postValidate, String firstAuthor, String atitle) {
+    public String retrieveByDoi(String doi, Boolean postValidate, String firstAuthor, String atitle, String mediaType) {
         MatchingDocument outputData = metadataLookup.retrieveByMetadata(doi);
-        outputData = validateJsonBody(postValidate, firstAuthor, atitle, outputData);
+        try {
+            switch (mediaType) {
+                case MediaType.APPLICATION_JSON: {
+                    outputData = validateJsonBody(postValidate, firstAuthor, atitle, outputData);
+                    break;
+                }
+                case MediaType.APPLICATION_XML:
+                    outputData = validateXmlBody(postValidate, firstAuthor, atitle, outputData);
+                    break;
+            }
 
-        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI());
+            return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI(), mediaType);
+        }catch (IOException | XPathExpressionException | SAXException e) {
+            throw new ServiceException(500, "Internal error.");
+        }
     }
 
     private MatchingDocument validateJsonBody(Boolean postValidate, String firstAuthor, String atitle, MatchingDocument outputData) {
@@ -138,6 +175,21 @@ public class LookupEngine {
 
         if (postValidate != null && postValidate && isNotBlank(firstAuthor)) {
             outputData = extractTitleAndFirstAuthorFromJson(outputData);
+
+            if (!areMetadataMatching(atitle, firstAuthor, outputData, true)) {
+                throw new NotFoundException("Best bibliographical record did not passed the post-validation");
+            }
+        }
+        return outputData;
+    }
+
+    private MatchingDocument validateXmlBody(Boolean postValidate, String firstAuthor, String atitle, MatchingDocument outputData) throws XPathExpressionException, SAXException, IOException {
+        if (isBlank(outputData.getJsonObject())) {
+            throw new NotFoundException("No bibliographical record found");
+        }
+
+        if (postValidate != null && postValidate && isNotBlank(firstAuthor)) {
+            outputData = extractTitleAndFirstAuthorFromXml(outputData);
 
             if (!areMetadataMatching(atitle, firstAuthor, outputData, true)) {
                 throw new NotFoundException("Best bibliographical record did not passed the post-validation");
@@ -174,17 +226,44 @@ public class LookupEngine {
         return outputData;
     }
 
-    public String retrieveByPmid(String pmid, Boolean postValidate, String firstAuthor, String atitle) {
+    private MatchingDocument extractTitleAndFirstAuthorFromXml(MatchingDocument outputData) throws IOException, SAXException, XPathExpressionException {
+        final Document doc = builder.parse(new InputSource(new StringReader(outputData.getJsonObject())));
+        Element titleElement = (Element) xPath.compile("/record/metadata/crossref_result/query_result/body/crossref_metadata/doi_record/crossref/*/*/titles/title[0]").evaluate(doc, XPathConstants.NODE);
+        if (titleElement != null) {
+            String title = titleElement.getTextContent();
+            outputData.setTitle(title);
+        }
+
+        NodeList authorsList = (NodeList) xPath.compile("/record/metadata/crossref_result/query_result/body/crossref_metadata/doi_record/crossref/*/*/contributors/person_name").evaluate(doc, XPathConstants.NODESET);
+
+        if (authorsList != null && authorsList.getLength() > 0) {
+
+            String firstAuthor = "";
+            for (int i = 0; i < authorsList.getLength(); i++) {
+                final Node currentAuthor = authorsList.item(i);
+                if (currentAuthor != null && currentAuthor.getNodeType() == Node.ELEMENT_NODE
+                        && StringUtils.equals(((Element)currentAuthor).getAttribute("sequence"), "first")) {
+                    firstAuthor = ((Element) currentAuthor).getElementsByTagName("surname").item(0).getTextContent();
+                    outputData.setFirstAuthor(firstAuthor);
+                    break;
+                }
+            }
+        }
+
+        return outputData;
+    }
+
+    public String retrieveByPmid(String pmid, Boolean postValidate, String firstAuthor, String atitle, String mediaType) {
         final PmidData pmidData = pmidLookup.retrieveIdsByPmid(pmid);
 
         if (pmidData != null && isNotBlank(pmidData.getDoi())) {
-            return retrieveByDoi(pmidData.getDoi(), postValidate, firstAuthor, atitle);
+            return retrieveByDoi(pmidData.getDoi(), postValidate, firstAuthor, atitle, mediaType);
         }
 
         throw new NotFoundException("Cannot find bibliographical record with PMID " + pmid);
     }
 
-    public String retrieveByPmc(String pmc, Boolean postValidate, String firstAuthor, String atitle) {
+    public String retrieveByPmc(String pmc, Boolean postValidate, String firstAuthor, String atitle, String mediaType) {
         if (!StringUtils.startsWithIgnoreCase(pmc, "pmc")) {
             pmc = "PMC" + pmc;
         }
@@ -192,41 +271,59 @@ public class LookupEngine {
         final PmidData pmidData = pmidLookup.retrieveIdsByPmc(pmc);
 
         if (pmidData != null && isNotBlank(pmidData.getDoi())) {
-            return retrieveByDoi(pmidData.getDoi(), postValidate, firstAuthor, atitle);
+            return retrieveByDoi(pmidData.getDoi(), postValidate, firstAuthor, atitle, mediaType);
         }
 
         throw new NotFoundException("Cannot find bibliographical record with PMC ID " + pmc);
     }
 
-    public String retrieveByIstexid(String istexid, Boolean postValidate, String firstAuthor, String atitle) {
+    public String retrieveByIstexid(String istexid, Boolean postValidate, String firstAuthor, String atitle, String mediaType) {
         final IstexData istexData = istexLookup.retrieveByIstexId(istexid);
 
         if (istexData != null && CollectionUtils.isNotEmpty(istexData.getDoi()) && isNotBlank(istexData.getDoi().get(0))) {
             final String doi = istexData.getDoi().get(0);
             MatchingDocument outputData = metadataLookup.retrieveByMetadata(doi);
 
-            outputData = validateJsonBody(postValidate, firstAuthor, atitle, outputData);
-            //return injectIdsByIstexData(outputData.getJsonObject(), doi, istexData);
-
             final String oaLink = oaDoiLookup.retrieveOaLinkByDoi(doi);
-            return injectIdsByIstexData(outputData.getJsonObject(), doi, istexData, oaLink);
+            try {
+                switch (mediaType) {
+                    case MediaType.APPLICATION_JSON: {
+                        outputData = validateJsonBody(postValidate, firstAuthor, atitle, outputData);
+                        return injectIdsByIstexDataJson(outputData.getJsonObject(), doi, istexData, oaLink);
+                    }
+                    case MediaType.APPLICATION_XML:
+                        outputData = validateXmlBody(postValidate, firstAuthor, atitle, outputData);
+                        return injectIdsByIstexDataXml(outputData.getJsonObject(), doi, istexData, oaLink);
+                }
+            }catch (IOException | XPathExpressionException | SAXException e) {
+                throw new ServiceException(500, "Internal error.");
+            }
         }
 
         throw new NotFoundException("Cannot find bibliographical record with ISTEX ID " + istexid);
     }
 
-    public String retrieveByPii(String pii, Boolean postValidate, String firstAuthor, String atitle) {
+    public String retrieveByPii(String pii, Boolean postValidate, String firstAuthor, String atitle, String mediaType) {
         final IstexData istexData = istexLookup.retrieveByPii(pii);
 
         if (istexData != null && CollectionUtils.isNotEmpty(istexData.getDoi()) && isNotBlank(istexData.getDoi().get(0))) {
             final String doi = istexData.getDoi().get(0);
             MatchingDocument outputData = metadataLookup.retrieveByMetadata(doi);
 
-            outputData = validateJsonBody(postValidate, firstAuthor, atitle, outputData);
-            //return injectIdsByIstexData(outputData.getJsonObject(), doi, istexData);
-
             final String oaLink = oaDoiLookup.retrieveOaLinkByDoi(doi);
-            return injectIdsByIstexData(outputData.getJsonObject(), doi, istexData, oaLink);
+            try {
+                switch (mediaType) {
+                    case MediaType.APPLICATION_JSON: {
+                        outputData = validateJsonBody(postValidate, firstAuthor, atitle, outputData);
+                        return injectIdsByIstexDataJson(outputData.getJsonObject(), doi, istexData, oaLink);
+                    }
+                    case MediaType.APPLICATION_XML:
+                        outputData = validateXmlBody(postValidate, firstAuthor, atitle, outputData);
+                        return injectIdsByIstexDataXml(outputData.getJsonObject(), doi, istexData, oaLink);
+                }
+            }catch (IOException | XPathExpressionException | SAXException e) {
+                throw new ServiceException(500, "Internal error.");
+            }
         }
 
         throw new NotFoundException("Cannot find bibliographical record by PII " + pii);
@@ -379,12 +476,12 @@ public class LookupEngine {
         return Pair.of(oaLink, url);
     }
 
-    public String retrieveByBiblio(String biblio) {
+    public String retrieveByBiblio(String biblio, String mediaType) {
         final MatchingDocument outputData = metadataMatching.retrieveByBiblio(biblio);
-        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI());
+        return injectIdsByDoi(outputData.getJsonObject(), outputData.getDOI(), mediaType);
     }
 
-    public void retrieveByBiblioAsync(String biblio, Boolean postValidate, String firstAuthor, String title, Boolean parseReference, Consumer<MatchingDocument> callback) {
+    public void retrieveByBiblioAsync(String biblio, Boolean postValidate, String firstAuthor, String title, Boolean parseReference, Consumer<MatchingDocument> callback, String mediaType) {
         metadataMatching.retrieveByBiblioAsync(biblio, matchingDocument -> {
             if (!matchingDocument.isException()) {
                 if (postValidate != null && postValidate) {
@@ -398,7 +495,7 @@ public class LookupEngine {
                                     callback.accept(new MatchingDocument(new NotFoundException("Best bibliographical record did not passed the post-validation")));
                                     return;
                                 }
-                                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                                 matchingDocument.setFinalJsonObject(s);
                                 callback.accept(matchingDocument);
                             });
@@ -411,12 +508,12 @@ public class LookupEngine {
                             callback.accept(new MatchingDocument(new NotFoundException("Best bibliographical record did not passed the post-validation")));
                             return;
                         }
-                        final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                        final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                         matchingDocument.setFinalJsonObject(s);
                         callback.accept(matchingDocument);
                     }
                 } else {
-                    final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                    final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                     matchingDocument.setFinalJsonObject(s);
                     callback.accept(matchingDocument);
                 }
@@ -427,10 +524,10 @@ public class LookupEngine {
         });
     }
 
-    public void retrieveByBiblioAsync(String biblio, Consumer<MatchingDocument> callback) {
+    public void retrieveByBiblioAsync(String biblio, Consumer<MatchingDocument> callback, String mediaType) {
         metadataMatching.retrieveByBiblioAsync(biblio, matchingDocument -> {
             if (!matchingDocument.isException()) {
-                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI());
+                final String s = injectIdsByDoi(matchingDocument.getJsonObject(), matchingDocument.getDOI(), mediaType);
                 matchingDocument.setFinalJsonObject(s);
             }
             callback.accept(matchingDocument);
@@ -510,16 +607,88 @@ public class LookupEngine {
     }
 
 
-    protected String injectIdsByDoi(String jsonobj, String doi) {
+    protected String injectIdsByDoi(String jsonobj, String doi, String mediaType) {
         final IstexData istexData = istexLookup.retrieveByDoi(doi);
 
         final String oaLink = oaDoiLookup.retrieveOaLinkByDoi(doi);
-
-        return injectIdsByIstexData(jsonobj, doi, istexData, oaLink);
+        switch(mediaType){
+            case MediaType.APPLICATION_JSON: {
+                return injectIdsByIstexDataJson(jsonobj, doi, istexData, oaLink);
+            }
+            case MediaType.APPLICATION_XML:
+                return injectIdsByIstexDataXml(jsonobj, doi, istexData, oaLink);
+            default:
+                throw new ServiceException(400, "provided format is either xml or json");
+        }
     }
 
+    protected String injectIdsByIstexDataXml(String jsonobj, String doi, IstexData istexData, String oaLink) {
+        boolean pmid = false;
+        boolean pmc = false;
+        boolean foundIstexData = false;
+        boolean foundPmidData = false;
+        boolean first = false;
+        boolean foundOaLink = false;
 
-    protected String injectIdsByIstexData(String jsonobj, String doi, IstexData istexData, String oaLink) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><result>");
+        sb.append(jsonobj);
+        sb.append("<external_identifiers>");
+        if (istexData != null) {
+            if (isNotBlank(istexData.getIstexId())) {
+                sb.append("<external_identifier type=\"istexId\">" + istexData.getIstexId() + "</external_identifier>");
+                foundIstexData = true;
+            }
+            if (CollectionUtils.isNotEmpty(istexData.getArk())) {
+                sb.append("<external_identifier type=\"ark\">" + istexData.getArk().get(0) + "</external_identifier>");
+                foundIstexData = true;
+            }
+            if (CollectionUtils.isNotEmpty(istexData.getPmid())) {
+                sb.append("<external_identifier type=\"pmid\">" + istexData.getPmid().get(0) + "</external_identifier>");
+                pmid = true;
+                foundIstexData = true;
+            }
+            if (CollectionUtils.isNotEmpty(istexData.getPmc())) {
+                sb.append("<external_identifier type=\"pmcid\">" + istexData.getPmc().get(0) + "</external_identifier>");
+                pmc = true;
+                foundIstexData = true;
+            }
+            if (CollectionUtils.isNotEmpty(istexData.getMesh())) {
+                sb.append("<external_identifier type=\"mesh\">" + istexData.getMesh().get(0) + "</external_identifier>");
+                foundIstexData = true;
+            }
+            if (CollectionUtils.isNotEmpty(istexData.getPii())) {
+                sb.append("<external_identifier type=\"pii\">" + istexData.getPii().get(0)  + "</external_identifier>");
+                foundIstexData = true;
+            }
+        }
+
+        if (!pmid || !pmc) {
+            final PmidData pmidData = pmidLookup.retrieveIdsByDoi(doi);
+            if (pmidData != null) {
+                if (isNotBlank(pmidData.getPmid()) && !pmid) {
+                    sb.append("<external_identifier type=\"pmid\">" + pmidData.getPmid()  + "</external_identifier>");
+                    foundPmidData = true;
+                }
+
+                if (isNotBlank(pmidData.getPmcid()) && !pmc) {
+                    sb.append("<external_identifier type=\"pmcid\">" + pmidData.getPmcid()  + "</external_identifier>");
+                    foundPmidData = true;
+                }
+            }
+        }
+
+        if (isNotBlank(oaLink)) {
+            sb.append("<external_identifier type=\"oaLink\">" + oaLink  + "</external_identifier>");
+            foundOaLink = true;
+
+        }
+        sb.append("</external_identifiers>");
+        sb.append("</result>");
+        return sb.toString();
+    }
+
+    protected String injectIdsByIstexDataJson(String jsonobj, String doi, IstexData istexData, String oaLink) {
         boolean pmid = false;
         boolean pmc = false;
         boolean foundIstexData = false;

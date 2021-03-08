@@ -3,11 +3,17 @@ storage: data/db
 #storage: /Volumes/Lacie/workspace/crossref/lmdb
 #storage: /media/lopez/T5/data/db
 version: version_placeholder
-ignoreCrossRefFields: 
+
+ignoreCrossRefJsonFields:
   - reference
   - abstract
   - indexed
 
+ignoreCrossRefXmlTags:
+  - header
+  - head
+  - crm-item
+  - citation_list
 # Loading batch size
 batchSize: 10000
 

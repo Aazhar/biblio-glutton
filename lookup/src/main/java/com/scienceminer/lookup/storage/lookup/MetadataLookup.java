@@ -7,6 +7,7 @@ import com.scienceminer.lookup.data.MatchingDocument;
 import com.scienceminer.lookup.exception.ServiceException;
 import com.scienceminer.lookup.exception.ServiceOverloadedException;
 import com.scienceminer.lookup.reader.CrossrefJsonReader;
+import com.scienceminer.lookup.reader.CrossrefXmlReader;
 import com.scienceminer.lookup.storage.StorageEnvFactory;
 import com.scienceminer.lookup.utils.BinarySerialiser;
 import org.apache.commons.lang3.tuple.ImmutablePair;
@@ -20,7 +21,17 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.lmdbjava.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.w3c.dom.Element;
+import org.xml.sax.SAXException;
 
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerConfigurationException;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.xpath.XPathExpressionException;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -53,12 +64,16 @@ public class MetadataLookup {
 
     private LookupConfiguration configuration;
 
-    public MetadataLookup(StorageEnvFactory storageEnvFactory) {
+    private Transformer transformer;
+    public MetadataLookup(StorageEnvFactory storageEnvFactory) throws TransformerConfigurationException {
         this.environment = storageEnvFactory.getEnv(ENV_NAME);
 
         configuration = storageEnvFactory.getConfiguration();
         batchSize = configuration.getBatchSize();
         dbCrossrefJson = this.environment.openDbi(NAME_CROSSREF_JSON, DbiFlags.MDB_CREATE);
+        TransformerFactory transformerFactory = TransformerFactory
+                .newInstance();
+        this.transformer = transformerFactory.newTransformer();
     }
 
     public void loadAndIndexFromJson(String jsonString, CrossrefJsonReader reader, Meter meter) {
@@ -104,6 +119,31 @@ public class MetadataLookup {
 
             String key = lowerCase(crossrefData.get("DOI").asText());
             store(key, crossrefData.toString(), dbCrossrefJson, transactionWrapper.tx);
+            meter.mark();
+            counter.incrementAndGet();
+
+
+        }, isAPI);
+        transactionWrapper.tx.commit();
+        transactionWrapper.tx.close();
+
+        LOGGER.info("Cross checking number of records processed: " + meter.getCount());
+    }
+
+    public void loadFromXml(String xmlString, CrossrefXmlReader reader, Meter meter, boolean isAPI) throws IOException, SAXException, XPathExpressionException, TransformerException {
+        final TransactionWrapper transactionWrapper = new TransactionWrapper(environment.txnWrite());
+        final AtomicInteger counter = new AtomicInteger(0);
+
+        reader.loadFromXml(xmlString, crossrefData -> {
+            if (counter.get() == batchSize) {
+                transactionWrapper.tx.commit();
+                transactionWrapper.tx.close();
+                transactionWrapper.tx = environment.txnWrite();
+                counter.set(0);
+            }
+
+            String key = lowerCase(crossrefData.getKey());
+            store(key, crossrefData.getValue(), dbCrossrefJson, transactionWrapper.tx);
             meter.mark();
             counter.incrementAndGet();
 

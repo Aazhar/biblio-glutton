@@ -8,6 +8,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import javax.ws.rs.container.AsyncResponse;
+import javax.ws.rs.core.MediaType;
 
 import static org.easymock.EasyMock.*;
 
@@ -65,7 +66,7 @@ public class LookupControllerTest {
 
         replay(mockMetadataLookup, mockedAsyncResponse, mockPmidsLookup, mockOALookup, mockIstexLookup, mockMetadataMatching);
         target.getByQuery(myDOI, null, null, null, null, firstAuthor, atitle,
-                postValidate, null, null, null, null, null, mockedAsyncResponse);
+                postValidate, null, null, null, null, null, mockedAsyncResponse, MediaType.APPLICATION_JSON);
 
         verify(mockMetadataLookup, mockedAsyncResponse, mockPmidsLookup, mockOALookup, mockIstexLookup, mockMetadataMatching);
     }
@@ -97,7 +98,7 @@ public class LookupControllerTest {
 
         replay(mockMetadataLookup, mockedAsyncResponse, mockPmidsLookup, mockOALookup, mockIstexLookup, mockMetadataMatching);
         target.getByQuery(myDOI, null, null, null, null, firstAuthor, atitle,
-                postValidate, null, null, null, null, null, mockedAsyncResponse);
+                postValidate, null, null, null, null, null, mockedAsyncResponse, MediaType.APPLICATION_JSON);
 
         verify(mockMetadataLookup, mockedAsyncResponse, mockPmidsLookup, mockOALookup, mockIstexLookup, mockMetadataMatching);
     }
@@ -121,7 +122,7 @@ public class LookupControllerTest {
 
         replay(mockMetadataLookup, mockedAsyncResponse, mockPmidsLookup, mockOALookup, mockIstexLookup, mockMetadataMatching);
         target.getByQuery(myDOI, null, null, null, null, firstAuthor, atitle,
-                postValidate, null, null, null, null, null, mockedAsyncResponse);
+                postValidate, null, null, null, null, null, mockedAsyncResponse, MediaType.APPLICATION_JSON);
 
         verify(mockMetadataLookup, mockedAsyncResponse, mockPmidsLookup, mockOALookup, mockIstexLookup, mockMetadataMatching);
     }

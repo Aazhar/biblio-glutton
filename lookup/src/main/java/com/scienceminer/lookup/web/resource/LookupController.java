@@ -19,8 +19,13 @@ import org.slf4j.LoggerFactory;
 import javax.ws.rs.*;
 import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.TransformerConfigurationException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.apache.commons.lang3.StringUtils.isBlank;
@@ -50,7 +55,7 @@ public class LookupController {
     }
 
     @Inject
-    public LookupController(LookupConfiguration configuration, StorageEnvFactory storageEnvFactory) {
+    public LookupController(LookupConfiguration configuration, StorageEnvFactory storageEnvFactory) throws TransformerConfigurationException, ParserConfigurationException {
         this.configuration = configuration;
         this.storageEnvFactory = storageEnvFactory;
         this.lookupEngine = new LookupEngine(storageEnvFactory);
@@ -58,7 +63,7 @@ public class LookupController {
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Path("/")
     public void getByQueryAsync(
             @QueryParam("doi") String doi,
@@ -74,8 +79,12 @@ public class LookupController {
             @QueryParam("firstPage") String firstPage,
             @QueryParam("biblio") String biblio,
             @QueryParam("parseReference") Boolean parseReference,
-            @Suspended final AsyncResponse asyncResponse) {
-
+            @Suspended final AsyncResponse asyncResponse,
+            @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
         asyncResponse.setTimeoutHandler(asyncResponse1 ->
                 asyncResponse1.resume(Response.status(Response.Status.REQUEST_TIMEOUT)
                         .entity("Operation time out")
@@ -97,7 +106,7 @@ public class LookupController {
         if (parseReference == null) parseReference = Boolean.TRUE;
 
         getByQuery(doi, pmid, pmc, pii, istexid, firstAuthor, atitle,
-                postValidate, jtitle, volume, firstPage, biblio, parseReference, asyncResponse);
+                postValidate, jtitle, volume, firstPage, biblio, parseReference, asyncResponse, mediaType.toString());
     }
 
     protected void getByQuery(
@@ -114,7 +123,8 @@ public class LookupController {
             String firstPage,
             String biblio,
             final Boolean parseReference,
-            AsyncResponse asyncResponse
+            AsyncResponse asyncResponse,
+            String mediaType
     ) {
 
         boolean areParametersEnoughToLookup = false;
@@ -123,7 +133,7 @@ public class LookupController {
         if (isNotBlank(doi)) {
             areParametersEnoughToLookup = true;
             try {
-                final String response = lookupEngine.retrieveByDoi(doi, postValidate, firstAuthor, atitle);
+                final String response = lookupEngine.retrieveByDoi(doi, postValidate, firstAuthor, atitle, mediaType);
 
                 if (isNotBlank(response)) {
                     asyncResponse.resume(response);
@@ -140,7 +150,7 @@ public class LookupController {
         if (isNotBlank(pmid)) {
             areParametersEnoughToLookup = true;
             try {
-                final String response = lookupEngine.retrieveByPmid(pmid, postValidate, firstAuthor, atitle);
+                final String response = lookupEngine.retrieveByPmid(pmid, postValidate, firstAuthor, atitle, mediaType);
 
                 if (isNotBlank(response)) {
                     asyncResponse.resume(response);
@@ -154,7 +164,7 @@ public class LookupController {
         if (isNotBlank(pmc)) {
             areParametersEnoughToLookup = true;
             try {
-                final String response = lookupEngine.retrieveByPmc(pmc, postValidate, firstAuthor, atitle);
+                final String response = lookupEngine.retrieveByPmc(pmc, postValidate, firstAuthor, atitle, mediaType);
                 if (isNotBlank(response)) {
                     asyncResponse.resume(response);
                     return;
@@ -168,7 +178,7 @@ public class LookupController {
         if (isNotBlank(pii)) {
             areParametersEnoughToLookup = true;
             try {
-                final String response = lookupEngine.retrieveByPii(pii, postValidate, firstAuthor, atitle);
+                final String response = lookupEngine.retrieveByPii(pii, postValidate, firstAuthor, atitle, mediaType);
                 if (isNotBlank(response)) {
                     asyncResponse.resume(response);
                     return;
@@ -182,7 +192,7 @@ public class LookupController {
         if (isNotBlank(istexid)) {
             areParametersEnoughToLookup = true;
             try {
-                final String response = lookupEngine.retrieveByIstexid(istexid, postValidate, firstAuthor, atitle);
+                final String response = lookupEngine.retrieveByIstexid(istexid, postValidate, firstAuthor, atitle, mediaType);
 
                 if (isNotBlank(response)) {
                     asyncResponse.resume(response);
@@ -213,7 +223,7 @@ public class LookupController {
                                         } else {
                                             asyncResponse.resume(MatchingDocumentBiblio.getFinalJsonObject());
                                         }
-                                    });
+                                    }, mediaType);
                                     return;
                                 } else {
                                     asyncResponse.resume(matchingDocument.getException());
@@ -221,7 +231,7 @@ public class LookupController {
                             } else {
                                 asyncResponse.resume(matchingDocumentJournal.getFinalJsonObject());
                             }
-                        });
+                        }, mediaType);
                         return;
                     }
 
@@ -240,7 +250,7 @@ public class LookupController {
                                         } else {
                                             asyncResponse.resume(matchingDocumentBiblio.getFinalJsonObject());
                                         }
-                                    });
+                                    }, mediaType);
                                     return;
                                 } else {
                                     asyncResponse.resume(matchingDocument.getException());
@@ -248,7 +258,7 @@ public class LookupController {
                             } else {
                                 asyncResponse.resume(matchingDocumentJournal.getFinalJsonObject());
                             }
-                        });
+                        }, mediaType);
                         return;
                     }
 
@@ -262,7 +272,7 @@ public class LookupController {
                             } else {
                                 asyncResponse.resume(matchingDocumentBiblio.getFinalJsonObject());
                             }
-                        });
+                        }, mediaType);
                         return;
                     } else {
                         asyncResponse.resume(matchingDocument.getException());
@@ -270,7 +280,7 @@ public class LookupController {
                 } else {
                     asyncResponse.resume(matchingDocument.getFinalJsonObject());
                 }
-            });
+            }, mediaType);
             return;
         }
 
@@ -286,7 +296,7 @@ public class LookupController {
                             } else {
                                 asyncResponse.resume(matchingDocumentBiblio.getFinalJsonObject());
                             }
-                        });
+                        }, mediaType);
                         return;
                     } else {
                         asyncResponse.resume(matchingDocument.getException());
@@ -294,7 +304,7 @@ public class LookupController {
                 } else {
                     asyncResponse.resume(matchingDocument.getFinalJsonObject());
                 }
-            });
+            }, mediaType);
             return;
         }
 
@@ -310,7 +320,7 @@ public class LookupController {
                             } else {
                                 asyncResponse.resume(matchingDocumentBiblio.getFinalJsonObject());
                             }
-                        });
+                        }, mediaType);
                         return;
                     } else {
                         asyncResponse.resume(matchingDocument.getException());
@@ -318,7 +328,7 @@ public class LookupController {
                 } else {
                     asyncResponse.resume(matchingDocument.getFinalJsonObject());
                 }
-            });
+            }, mediaType);
             return;
         }
 
@@ -330,7 +340,7 @@ public class LookupController {
                 } else {
                     asyncResponse.resume(matchingDocumentBiblio.getFinalJsonObject());
                 }
-            });
+            }, mediaType);
             return;
         }
 
@@ -367,49 +377,79 @@ public class LookupController {
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Path("/doi/{doi}")
-    public String getByDoi(@PathParam("doi") String doi) {
-        return lookupEngine.retrieveByDoi(doi, false, null, null);
+    public String getByDoi(@PathParam("doi") String doi,
+                           @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
+        return lookupEngine.retrieveByDoi(doi, false, null, null, mediaType.getType());
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Path("/pmid/{pmid}")
-    public String getByPmid(@PathParam("pmid") String pmid) {
-        return lookupEngine.retrieveByPmid(pmid, false, null, null);
+    public String getByPmid(@PathParam("pmid") String pmid,
+                            @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
+        return lookupEngine.retrieveByPmid(pmid, false, null, null, mediaType.getType());
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Path("/pii/{pii}")
-    public String getByPii(@PathParam("pii") String pii) {
-        return lookupEngine.retrieveByPii(pii, false, null, null);
+    public String getByPii(@PathParam("pii") String pii,
+                           @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
+        return lookupEngine.retrieveByPii(pii, false, null, null, mediaType.getType());
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Path("/pmc/{pmc}")
-    public String getByPmc(@PathParam("pmc") String pmc) {
-        return lookupEngine.retrieveByPmc(pmc, false, null, null);
+    public String getByPmc(@PathParam("pmc") String pmc,
+                           @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
+        return lookupEngine.retrieveByPmc(pmc, false, null, null, mediaType.getType());
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Path("/istexid/{istexid}")
-    public String getByIstexid(@PathParam("istexid") String istexid) {
-        return lookupEngine.retrieveByIstexid(istexid, false, null, null);
+    public String getByIstexid(@PathParam("istexid") String istexid,
+                               @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
+        return lookupEngine.retrieveByIstexid(istexid, false, null, null, mediaType.getType());
     }
 
     @POST
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     @Consumes(MediaType.TEXT_PLAIN)
     @Path("/")
-    public void getByBiblioStringWithPost(String biblio, @Suspended final AsyncResponse asyncResponse) {
+    public void getByBiblioStringWithPost(String biblio, @Suspended final AsyncResponse asyncResponse,
+                                          @Context HttpHeaders headers) {
+        MediaType mediaType = headers.getMediaType();
+        // defaults to json
+        if(mediaType == null)
+            mediaType = MediaType.valueOf(MediaType.APPLICATION_JSON);
         if (isNotBlank(biblio)) {
             lookupEngine.retrieveByBiblioAsync(biblio, matchingDocument -> {
                 dispatchResponseOrException(asyncResponse, matchingDocument);
-            });
+            }, mediaType.getType());
             return;
         }
 

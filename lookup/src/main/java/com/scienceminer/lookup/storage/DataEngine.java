@@ -5,6 +5,7 @@ import com.scienceminer.lookup.data.PmidData;
 import com.scienceminer.lookup.storage.lookup.*;
 import org.apache.commons.lang3.tuple.Pair;
 
+import javax.xml.transform.TransformerConfigurationException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,7 @@ public class DataEngine {
     public DataEngine() {
     }
 
-    public DataEngine(StorageEnvFactory storageFactory) {
+    public DataEngine(StorageEnvFactory storageFactory) throws TransformerConfigurationException {
         this.oaDoiLookup = new OALookup(storageFactory);
         this.istexLookup = new IstexIdsLookup(storageFactory);
         this.metadataLookup = new MetadataLookup(storageFactory);

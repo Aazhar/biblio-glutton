@@ -15,6 +15,7 @@ import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
+import javax.xml.transform.TransformerConfigurationException;
 import java.util.List;
 import java.util.Map;
 
@@ -29,7 +30,7 @@ public class DataController {
     private LookupConfiguration configuration;
 
     @Inject
-    public DataController(LookupConfiguration configuration, StorageEnvFactory storageEnvFactory) {
+    public DataController(LookupConfiguration configuration, StorageEnvFactory storageEnvFactory) throws TransformerConfigurationException {
         this.configuration = configuration;
         this.storage = new DataEngine(storageEnvFactory);
     }
